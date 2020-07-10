@@ -1,5 +1,5 @@
 import tensorflow as tf
-from utils import AnchorBoxes
+from anchors import AnchorBoxes
 import numpy as np
 
 
@@ -18,8 +18,6 @@ class YoloLoss(object):
 
     def compute_iou(self, pred_boxes, target_boxes):
 
-        # Convert to minmax
-        # TODO: preds are not decoded here
         pred_boxes = tf.concat([pred_boxes[..., :2] - pred_boxes[..., 2:] * 0.5,
                                 pred_boxes[..., :2] + pred_boxes[..., 2:] * 0.5], axis=-1)
 
@@ -39,14 +37,15 @@ class YoloLoss(object):
         return iou
 
     def __call__(self, y_true, y_pred, **kwargs):
+
         xt, yt, wt, ht, obj_mask, labels = tf.split(y_true, [1, 1, 1, 1, 1, self.ncls], axis=-1)
         xp, yp, wp, hp, obj_pred, logits = tf.split(y_pred, [1, 1, 1, 1, 1, self.ncls], axis=-1)
 
         # compute iou
         predicted_boxes = self.decode(y_pred)
-        target_boxes = tf.reshape(y_true, predicted_boxes.get_shape())
+        target_boxes = tf.reshape(y_true, [-1, *predicted_boxes.get_shape()[1:]])
         iou = tf.expand_dims(self.compute_iou(predicted_boxes[..., :4], target_boxes[..., :4]), axis=-1)
-        iou = tf.reshape(iou, (*y_pred.get_shape()[:-1], 1))
+        iou = tf.reshape(iou, (-1, *y_pred.get_shape()[1:-1], 1))
         # max_iou = tf.reshape(tf.reduce_max(iou, axis=-1), [-1,self.grid_size,self.grid_size,3,1])
 
         iou_mask = tf.cast(tf.less(iou, 0.5 * tf.ones_like(iou)), tf.float32)
@@ -66,8 +65,8 @@ class YoloLoss(object):
         # calculate wh targets
         anchor = tf.reshape(self.anchor, [1, 1, 1, 3, 2])
         anchor_w, anchor_h = tf.split(anchor, 2, axis=-1)
-        w_target = tf.math.log(wt / anchor_w * self.img_shape[1])
-        h_target = tf.math.log(ht / anchor_h * self.img_shape[0])
+        w_target = tf.math.log(wt / anchor_w)
+        h_target = tf.math.log(ht / anchor_h)
         wh_target = tf.concat([w_target, h_target], axis=-1)
         wh_target = tf.where(tf.math.is_inf(wh_target),
                              tf.zeros_like(wh_target), wh_target)
