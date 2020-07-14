@@ -22,26 +22,6 @@ class YoloLoss(object):
         self.anchor = self.encoder.anchors[anchors_idx]
         self.decode = lambda x: self.encoder.decode(x, anchors_idx)
 
-    def compute_iou(self, pred_boxes: tf.Tensor, target_boxes: tf.Tensor) -> tf.Tensor:
-
-        pred_boxes = tf.concat([pred_boxes[..., :2] - pred_boxes[..., 2:] * 0.5,
-                                pred_boxes[..., :2] + pred_boxes[..., 2:] * 0.5], axis=-1)
-
-        target_boxes = tf.concat([target_boxes[..., :2] - target_boxes[..., 2:] * 0.5,
-                                  target_boxes[..., :2] + target_boxes[..., 2:] * 0.5], axis=-1)
-
-        boxes1_area = (pred_boxes[..., 2] - pred_boxes[..., 0]) * (pred_boxes[..., 3] - pred_boxes[..., 1])
-        boxes2_area = (target_boxes[..., 2] - target_boxes[..., 0]) * (target_boxes[..., 3] - target_boxes[..., 1])
-
-        left_up = tf.maximum(pred_boxes[..., :2], target_boxes[..., :2])
-        right_down = tf.minimum(pred_boxes[..., 2:], target_boxes[..., 2:])
-
-        inter_section = tf.maximum(right_down - left_up, 0.0)
-        inter_area = inter_section[..., 0] * inter_section[..., 1]
-        union_area = boxes1_area + boxes2_area - inter_area
-        iou = inter_area / union_area
-        return iou
-
     def __call__(self, y_true: tf.Tensor, y_pred: tf.Tensor, **kwargs) -> tf.Tensor:
 
         xt, yt, wt, ht, obj_mask, labels = tf.split(y_true, [1, 1, 1, 1, 1, self.ncls], axis=-1)
