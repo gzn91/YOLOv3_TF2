@@ -1,22 +1,28 @@
+from typing import List, Tuple
 import tensorflow as tf
 from anchors import AnchorBoxes
-import numpy as np
+from image_ops import compute_iou
 
 
 class YoloLoss(object):
 
-    def __init__(self, anchors_idx, grid_size, ncls=80, img_shape=(416, 416)):
+    def __init__(self,
+                 anchors_idx: List[int],
+                 grid_size: int,
+                 ncls: int = 80,
+                 img_shape: Tuple[int, int, int] = (416, 416, 3),
+                 lambda_coord: int = 2.0):
 
         self.anchor_idx = anchors_idx
         self.grid_size = grid_size
         self.ncls = ncls
         self.img_shape = img_shape
-        self.lambda_coord = 1.5
+        self.lambda_coord = lambda_coord
         self.encoder = AnchorBoxes(img_size=img_shape[0], ncls=ncls)
         self.anchor = self.encoder.anchors[anchors_idx]
         self.decode = lambda x: self.encoder.decode(x, anchors_idx)
 
-    def compute_iou(self, pred_boxes, target_boxes):
+    def compute_iou(self, pred_boxes: tf.Tensor, target_boxes: tf.Tensor) -> tf.Tensor:
 
         pred_boxes = tf.concat([pred_boxes[..., :2] - pred_boxes[..., 2:] * 0.5,
                                 pred_boxes[..., :2] + pred_boxes[..., 2:] * 0.5], axis=-1)
@@ -36,21 +42,29 @@ class YoloLoss(object):
         iou = inter_area / union_area
         return iou
 
-    def __call__(self, y_true, y_pred, **kwargs):
+    def __call__(self, y_true: tf.Tensor, y_pred: tf.Tensor, **kwargs) -> tf.Tensor:
 
         xt, yt, wt, ht, obj_mask, labels = tf.split(y_true, [1, 1, 1, 1, 1, self.ncls], axis=-1)
         xp, yp, wp, hp, obj_pred, logits = tf.split(y_pred, [1, 1, 1, 1, 1, self.ncls], axis=-1)
 
-        # compute iou
+        # Compute IoU
         predicted_boxes = self.decode(y_pred)
         target_boxes = tf.reshape(y_true, [-1, *predicted_boxes.get_shape()[1:]])
-        iou = tf.expand_dims(self.compute_iou(predicted_boxes[..., :4], target_boxes[..., :4]), axis=-1)
-        iou = tf.reshape(iou, (-1, *y_pred.get_shape()[1:-1], 1))
-        # max_iou = tf.reshape(tf.reduce_max(iou, axis=-1), [-1,self.grid_size,self.grid_size,3,1])
+        iou = tf.TensorArray(tf.float32, size=1, dynamic_size=True)
+        obj_mask_bool = tf.cast(tf.reshape(obj_mask, [-1, *predicted_boxes.get_shape()[1:-1]]), tf.bool)
 
+        def loop_body(batch_idx, iou_array):
+            gt_boxes = tf.reshape(tf.boolean_mask(target_boxes[batch_idx, ..., :4], obj_mask_bool[batch_idx], axis=0), (-1, 4))
+            iou_scores = compute_iou(gt_boxes, predicted_boxes[batch_idx, ..., :4])
+            iou_array = iou_array.write(batch_idx, iou_scores)
+            return batch_idx + 1, iou_array
+
+        _, iou = tf.while_loop(lambda *args: args[0] < tf.shape(obj_mask)[0], loop_body, [0, iou])
+        iou = iou.stack()
+        iou = tf.reshape(iou, (-1, *y_pred.get_shape()[1:-1], 1))
         iou_mask = tf.cast(tf.less(iou, 0.5 * tf.ones_like(iou)), tf.float32)
 
-        # create grids and calculate offset targets
+        # Create grids and calculate offset targets
         x_grid = tf.tile(tf.reshape(tf.range(self.grid_size, dtype=tf.float32), [1, 1, -1, 1, 1]),
                          [1, self.grid_size, 1, 1, 1])
         y_grid = tf.tile(tf.reshape(tf.range(self.grid_size, dtype=tf.float32), [1, -1, 1, 1, 1]),
@@ -60,9 +74,7 @@ class YoloLoss(object):
         offset_y = yt * self.grid_size - y_grid
         offset_xy = tf.concat([offset_x, offset_y], axis=-1)
 
-        # print(offset_xy)
-
-        # calculate wh targets
+        # Calculate wh targets
         anchor = tf.reshape(self.anchor, [1, 1, 1, 3, 2])
         anchor_w, anchor_h = tf.split(anchor, 2, axis=-1)
         w_target = tf.math.log(wt / anchor_w)
@@ -71,24 +83,17 @@ class YoloLoss(object):
         wh_target = tf.where(tf.math.is_inf(wh_target),
                              tf.zeros_like(wh_target), wh_target)
 
-        # promote loss for smaller boxes
+        # Promote loss for smaller boxes
         box_loss_scale = 2 - wt * ht
 
-        # calculate losses
-
+        # Calculate losses
         xy_loss = tf.reduce_sum(
             tf.math.squared_difference(tf.nn.sigmoid(y_pred[..., :2]), offset_xy) * obj_mask * box_loss_scale,
             axis=[1, 2, 3, 4])
-
-        # xy_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
-        #     logits=y_pred[..., :2], labels=offset_xy) * obj_mask * box_loss_scale, axis=[1, 2, 3, 4])
-
         wh_loss = tf.reduce_sum(tf.math.squared_difference(y_pred[..., 2:4], wh_target) * obj_mask * box_loss_scale,
                                 axis=[1, 2, 3, 4])
-
         cls_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=labels),
                                  axis=[1, 2, 3, 4])
-
         neg_obj_loss = tf.reduce_sum(
             (1 - obj_mask) * iou_mask * tf.nn.sigmoid_cross_entropy_with_logits(logits=obj_pred, labels=obj_mask),
             axis=[1, 2, 3, 4])

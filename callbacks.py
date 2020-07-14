@@ -4,12 +4,12 @@ from matplotlib.patches import Rectangle
 import numpy as np
 import io
 import image_ops
-from anchors import CLASSES
+from anchors import CLASSES, AnchorBoxes
 
 
 class ImageCallback(tf.keras.callbacks.Callback):
 
-    def __init__(self, model, val_data, val_steps, logdir, encoder):
+    def __init__(self, model: tf.keras.Model, val_data: tf.data.Dataset, val_steps: int, logdir: str, encoder: AnchorBoxes):
         super(ImageCallback, self).__init__()
         self._model = model
         self.val_data = val_data
@@ -17,7 +17,7 @@ class ImageCallback(tf.keras.callbacks.Callback):
         self.encoder = encoder
         self.filewriter = tf.summary.create_file_writer(logdir)
 
-    def plot_to_image(self, figure):
+    def plot_to_image(self, figure: plt.Figure):
         """Converts the matplotlib plot specified by 'figure' to a PNG image and
         returns it. The supplied figure is closed and inaccessible after this call."""
         # Save the plot to a PNG in memory.
@@ -34,7 +34,7 @@ class ImageCallback(tf.keras.callbacks.Callback):
         image = tf.expand_dims(image, 0)
         return image
 
-    def draw_bboxes_gt(self, img, bboxes, classes):
+    def draw_bboxes_gt(self, img: tf.Tensor, bboxes: tf.Tensor, classes: tf.Tensor) -> plt.Figure:
         CM = plt.cm.get_cmap('Set1')
         fig, ax = plt.subplots(figsize=(8,8))
         scale_h, scale_w, _ = img.shape
@@ -54,18 +54,18 @@ class ImageCallback(tf.keras.callbacks.Callback):
         return fig
 
     @tf.function
-    def predict(self, x):
+    def predict(self, x: tf.Tensor) -> tf.Tensor:
 
         return self._model(x, training=False)
 
 
 class YOLOCallback(ImageCallback):
 
-    def __init__(self, model, val_data, val_steps, logdir, encoder, write_every_n_epochs=1):
+    def __init__(self, model: tf.keras.Model, val_data: tf.data.Dataset,
+                 val_steps: int, logdir: str, encoder: AnchorBoxes, write_every_n_epochs: int = 1):
         super(YOLOCallback, self).__init__(model, val_data, val_steps, logdir, encoder)
         self.write_every_n_epochs = write_every_n_epochs
         self.filewriter = tf.summary.create_file_writer(logdir)
-
 
     def on_epoch_end(self, epoch, logs=None):
         if (epoch + 1) % self.write_every_n_epochs == 0:

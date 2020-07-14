@@ -1,13 +1,14 @@
+import io
+from typing import Dict, Tuple, List, Union
 import cv2
 import numpy as np
-import io
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from anchors import CLASSES
 
 
-def compute_iou_np(box1, box2):
+def compute_iou_np(box1: np.ndarray, box2: np.ndarray) -> np.ndarray:
     # expand to broadcast
     box1 = np.expand_dims(box1, axis=0)
     box2 = np.expand_dims(box2, axis=-2)
@@ -24,7 +25,7 @@ def compute_iou_np(box1, box2):
     return np.max(inter_area / outer_area, axis=-1)
 
 
-def compute_iou(box1, box2):
+def compute_iou(box1: tf.Tensor, box2: tf.Tensor) -> tf.Tensor:
     # expand to broadcast
     box1 = tf.expand_dims(box1, axis=0)
     box2 = tf.expand_dims(box2, axis=-2)
@@ -41,7 +42,10 @@ def compute_iou(box1, box2):
     return tf.reduce_max(inter_area / outer_area, axis=-1)
 
 
-def non_max_suppression(detections, confidence_threshold=0.2, iou_threshold=0.4, max_nr_boxes_per_cls=32):
+def non_max_suppression(detections: tf.Tensor,
+                        confidence_threshold: float = 0.2,
+                        iou_threshold: float = 0.4,
+                        max_nr_boxes_per_cls: int = 32) -> Tuple[Dict[int, tf.Tensor], Dict[int, tf.Tensor]]:
     _, D = detections.shape
 
     bboxes, scores, classes = tf.split(detections, [4, 1, 1], axis=-1)
@@ -72,7 +76,9 @@ def non_max_suppression(detections, confidence_threshold=0.2, iou_threshold=0.4,
     return selected_scores, selected_boxes
 
 
-def non_max_suppression_np(y_pred, confidence_threshold=0.2, iou_threshold=0.4):
+def non_max_suppression_np(y_pred: np.ndarray,
+                           confidence_threshold: float = 0.2,
+                           iou_threshold: float = 0.4) -> Tuple[Dict[int, List[np.ndarray]], Dict[int, List[np.ndarray]]]:
 
     _, D = y_pred.shape
     conf_mask = y_pred[..., 4] > confidence_threshold
@@ -105,8 +111,8 @@ def non_max_suppression_np(y_pred, confidence_threshold=0.2, iou_threshold=0.4):
                 best_score = cls_scores[box_idx[0]]
                 other_boxes = cls_boxes[box_idx[1:]]
                 box_idx = box_idx[1:]
-                selected_boxes[cls_idx].append(best_box)
-                selected_scores[cls_idx].append(best_score)
+                selected_boxes[int(cls_idx)].append(best_box)
+                selected_scores[int(cls_idx)].append(best_score)
                 iou = compute_iou_np(np.expand_dims(best_box, axis=0), other_boxes)
                 iou_mask = iou < iou_threshold
                 box_idx = box_idx[iou_mask]
@@ -114,7 +120,10 @@ def non_max_suppression_np(y_pred, confidence_threshold=0.2, iou_threshold=0.4):
     return selected_scores, selected_boxes
 
 
-def read_image(path, target_size, return_full_res_image=False):
+def read_image(path: str,
+               target_size: int,
+               return_full_res_image: bool = False) -> Union[Tuple[np.ndarray, np.ndarray, int, int],
+                                                             Tuple[np.ndarray, np.ndarray, int, int, np.ndarray]]:
     img = cv2.imread(path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     r = target_size / max(img.shape)  # size ratio
@@ -133,7 +142,10 @@ def read_image(path, target_size, return_full_res_image=False):
     return resized_img, np.r_[new_sz][::-1], fx / target_size, fy / target_size
 
 
-def resize_with_pad_tf(image, height, width, target_size):
+def resize_with_pad_tf(image: tf.Tensor,
+                       height: int,
+                       width: int,
+                       target_size: int) -> Tuple[tf.Tensor, Tuple[int, int, tf.Tensor]]:
     height = tf.cast(height, tf.float32)
     width = tf.cast(width, tf.float32)
     r = target_size / tf.math.maximum(width, height)  # size ratio
@@ -151,7 +163,7 @@ def resize_with_pad_tf(image, height, width, target_size):
     return image, (pad_w_begin, pad_h_begin, tf.cast(new_sz, tf.float32))
 
 
-def translate_bboxes(bboxes, pad_w, pad_h):
+def translate_bboxes(bboxes: tf.Tensor, pad_w: int, pad_h: int) -> tf.Tensor:
     pad_h = tf.cast(pad_h, tf.float32)
     pad_w = tf.cast(pad_w, tf.float32)
     xmin, ymin, xmax, ymax = tf.split(bboxes, num_or_size_splits=4, axis=-1)
@@ -162,7 +174,12 @@ def translate_bboxes(bboxes, pad_w, pad_h):
     return tf.concat([xmin, ymin, xmax, ymax], axis=-1)
 
 
-def draw_bbox(image, preds, bboxes, dw=0, dh=0, r=(1, 1), scale=True):
+def draw_bbox(image: Union[np.ndarray, tf.Tensor],
+              preds: Dict[int, Union[np.ndarray, tf.Tensor]],
+              bboxes: Dict[int, Union[np.ndarray, tf.Tensor]],
+              dw: int = 0, dh: int = 0,
+              r: Union[np.ndarray, List[int], Tuple[int, int]] = (1, 1),
+              scale: bool = True) -> plt.Figure:
     CM = plt.cm.get_cmap('Set1')
     fig, ax = plt.subplots(1, figsize=(13, 7))
     scale_h, scale_w, _ = image.shape
@@ -189,7 +206,7 @@ def draw_bbox(image, preds, bboxes, dw=0, dh=0, r=(1, 1), scale=True):
     return fig
 
 
-def plot_to_image(figure):
+def plot_to_image(figure: plt.Figure) -> tf.Tensor:
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     plt.close(figure)
@@ -199,10 +216,10 @@ def plot_to_image(figure):
     return image
 
 
-def get_img_from_fig(fig, dpi=180):
+def get_img_from_fig(fig: plt.Figure, dpi: int = 180) -> np.ndarray:
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=180)
+    fig.savefig(buf, format="png", dpi=dpi)
     plt.close(fig)
     buf.seek(0)
     img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
@@ -212,7 +229,7 @@ def get_img_from_fig(fig, dpi=180):
     return img
 
 
-def resize(image, size):
+def resize(image: np.ndarray, size: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     height, width, _ = image.shape
     r = size / np.maximum(width, height)  # size ratio
     new_sz = np.array((width * r, height * r)).astype(np.int32)

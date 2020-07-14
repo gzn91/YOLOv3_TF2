@@ -1,3 +1,4 @@
+from typing import Tuple, Union, List
 import numpy as np
 import tensorflow as tf
 
@@ -17,7 +18,7 @@ LABEL_MAP = {'person': 0, 'bicycle': 1, 'car': 2, 'motorbike': 3, 'aeroplane': 4
 CLASSES = list(LABEL_MAP.keys())
 
 
-def compute_iou_wh(boxes, anchors):
+def compute_iou_wh(boxes: np.ndarray, anchors: np.ndarray) -> np.ndarray:
     anchors = np.expand_dims(anchors, 0)
     boxes = np.expand_dims(boxes, -2)
 
@@ -33,14 +34,14 @@ def compute_iou_wh(boxes, anchors):
 
 class AnchorBoxes(object):
 
-    def __init__(self, img_size, filename='anchors.csv', ncls=80):
+    def __init__(self, img_size: int, filename: str = 'anchors.csv', ncls: int = 80):
         anchors = np.genfromtxt(filename, np.float32, delimiter=',')
         idx = np.argsort(anchors.prod(axis=-1))
         self.anchors = anchors[idx] / img_size
         self._img_size = img_size
         self._ncls = ncls
 
-    def encode(self, labels, boxes):
+    def encode(self, labels: np.ndarray, boxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         mb_size = labels.shape[0]
 
         if mb_size < 1:
@@ -48,7 +49,11 @@ class AnchorBoxes(object):
                    np.zeros((self._img_size // 16, self._img_size // 16, 3, 5 + self._ncls), dtype=np.float32), \
                    np.zeros((self._img_size // 32, self._img_size // 32, 3, 5 + self._ncls), dtype=np.float32)
 
-        def _encode(box, anchor_idx, anchor_mask, grid_size):
+        def _encode(box: np.ndarray,
+                    anchor_idx: np.ndarray,
+                    anchor_mask: Union[Tuple[int, int, int], np.ndarray],
+                    grid_size: int) -> np.ndarray:
+
             y_true = np.zeros((grid_size, grid_size, 3, 5 + self._ncls), dtype=np.float32)
 
             mask = (anchor_idx[:, None] == np.tile(anchor_mask, (anchor_idx.size, 1))).sum(axis=-1) == 1
@@ -78,7 +83,8 @@ class AnchorBoxes(object):
 
         return y_true_s, y_true_m, y_true_l
 
-    def decode(self, y_pred, anchor_mask):
+    def decode(self, y_pred: tf.Tensor, anchor_mask: Union[List[int], np.ndarray]) -> tf.Tensor:
+
         _, G, _, A, D = y_pred.get_shape()
 
         anchor = self.anchors[anchor_mask]
@@ -111,7 +117,7 @@ class AnchorBoxes(object):
 
         return y_pred
 
-    def decode_gt(self, y_pred):
+    def decode_gt(self, y_pred: tf.Tensor) -> tf.Tensor:
         B, G, _, A, D = y_pred.get_shape()
 
         x, y, w, h, obj_mask, labels = tf.split(y_pred, num_or_size_splits=[1, 1, 1, 1, 1, -1], axis=-1)

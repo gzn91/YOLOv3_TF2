@@ -1,13 +1,12 @@
 import tensorflow as tf
-import numpy as np
-import cv2
 import os
-import glob
-from anchors import AnchorBoxes, CLASSES
+from typing import List, Dict, Tuple, Any, Union
+import numpy as np
+from anchors import AnchorBoxes
 from image_ops import non_max_suppression, draw_bbox, resize_with_pad_tf, translate_bboxes
-from augmentor import Augmentor, RandomCrop
+from augmentor import Augmentor
 
-MAX_GT_PER_IMAGE = 200
+MAX_GT_PER_IMAGE = 500
 
 class DataLoader(object):
 
@@ -19,14 +18,14 @@ class DataLoader(object):
         self.encoder = AnchorBoxes(img_size=self.desired_size, ncls=self._ncls)
         self.augmentor = Augmentor()
 
-    def create_dataset(self, batch_size, repeat_n_times=8 * 50):
+    def create_dataset(self, batch_size: int) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
 
-        def _parse_fn(tf_record, training):
+        def _parse_fn(tf_record: tf.Tensor,
+                      training: bool) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
             features = {
                 'height': tf.io.FixedLenFeature([], tf.int64),
                 'width': tf.io.FixedLenFeature([], tf.int64),
                 'image': tf.io.FixedLenFeature([], tf.string),
-                'filename': tf.io.FixedLenFeature([], tf.string),
                 'class': tf.io.VarLenFeature(tf.string),
                 'xmin': tf.io.VarLenFeature(tf.float32),
                 'xmax': tf.io.VarLenFeature(tf.float32),
@@ -36,7 +35,6 @@ class DataLoader(object):
             }
 
             features = tf.io.parse_single_example(tf_record, features)
-            filename = features['filename']
             image = tf.io.decode_jpeg(features['image'])
             height = tf.cast(features['height'], tf.int32)
             width = tf.cast(features['width'], tf.int32)
@@ -85,13 +83,7 @@ class DataLoader(object):
         train_ds = os.path.join(self.path, 'training-*.tfrecord')
         val_ds = os.path.join(self.path, 'validation-*.tfrecord')
 
-        def generate_tfdataset(paths, batch_size=2, buffer_size=10, training=True):
-            # dataset = tf.data.TFRecordDataset(paths)
-            # dataset = dataset.map(lambda x: _parse_fn(x, training=training), num_parallel_calls=tf.data.experimental.AUTOTUNE)
-            # dataset = dataset.repeat().shuffle(128)
-            # dataset = dataset.batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
-            # return dataset
-
+        def generate_tfdataset(paths: str, batch_size: int = 2, buffer_size: int = 10, training: bool = True):
             dataset = tf.data.Dataset.list_files(paths)
             dataset = dataset.shuffle(buffer_size).repeat()
             dataset = dataset.interleave(tf.data.TFRecordDataset, block_length=1, num_parallel_calls=-1)
@@ -99,12 +91,12 @@ class DataLoader(object):
             dataset = dataset.shuffle(512).batch(batch_size).prefetch(-1)
             return dataset
 
-        return generate_tfdataset(train_ds,
-                                  buffer_size=100,
-                                  batch_size=batch_size), \
-               generate_tfdataset(val_ds,
+        return (generate_tfdataset(train_ds,
+                                  buffer_size=10,
+                                  batch_size=batch_size),
+                generate_tfdataset(val_ds,
                                   batch_size=4,
-                                  training=False)
+                                  training=False))
 
 
 if __name__=='__main__':

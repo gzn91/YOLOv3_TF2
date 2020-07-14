@@ -1,3 +1,4 @@
+from typing import Tuple
 import imgaug.augmenters as iaa
 from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 import numpy as np
@@ -19,7 +20,7 @@ class Augmentor(object):
             iaa.Sometimes(0.1, iaa.Dropout(0.10))
                                     ])
 
-    def augment(self, img, bboxes, labels):
+    def augment(self, img: np.ndarray, bboxes: np.ndarray, labels: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         size, _, c = img.shape
 
         bbs = BoundingBoxesOnImage([

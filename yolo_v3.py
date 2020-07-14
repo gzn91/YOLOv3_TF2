@@ -1,3 +1,4 @@
+from typing import Tuple, List, Union
 import tensorflow as tf
 from anchors import AnchorBoxes
 from layers import YOLOv3Net
@@ -6,7 +7,9 @@ from losses import YoloLoss
 
 class YOLOv3(object):
 
-    def __init__(self, img_shape=(416,416,3), ncls=80, use_pretrained_weights=True, use_spp=True):
+    def __init__(self, img_shape: Tuple[int, int, int] = (416, 416, 3),
+                 ncls: int = 80, use_pretrained_weights: bool = True, use_spp: bool = True):
+
         self._img_shape = img_shape
         self._img_size = img_shape[0]
         self._ncls = ncls
@@ -19,7 +22,7 @@ class YOLOv3(object):
                                                                             trainable_backbone=True,
                                                                             use_spp=use_spp)(self.input_))
 
-        def _decode(inputs, max_to_keep=2000):
+        def _decode(inputs: List[tf.Tensor], max_to_keep: int = 2000):
             y_52, y_26, y_13 = inputs
             y_52 = self.anchor_manipulator.decode(y_52, [0, 1, 2])
             y_26 = self.anchor_manipulator.decode(y_26, [3, 4, 5])
@@ -61,23 +64,27 @@ class YOLOv3(object):
                      'y_26': lambda y_true, y_pred: loss_26(y_true, y_pred),
                      'y_13': lambda y_true, y_pred: loss_13(y_true, y_pred)}
 
-    def __call__(self, *inputs, **kwargs):
+    def __call__(self, *inputs: tf.Tensor, **kwargs) -> tf.Tensor:
         return self.serving(inputs, **kwargs)
 
-    def compile(self, optimizer):
+    def compile(self, optimizer: tf.optimizers.Optimizer):
         self.network.compile(optimizer=optimizer, loss=self.loss)
 
-    def fit(self, train_ds, steps_per_epoch=100, validation_data=None,
-            validation_steps=20, epochs=1000, callbacks=None,
-            initial_epoch=0):
+    def fit(self,
+            train_ds: tf.data.Dataset,
+            steps_per_epoch: int = 100,
+            validation_data: tf.data.Dataset = None,
+            validation_steps: int = 20,
+            epochs: int = 1000,
+            callbacks: List[callable] = None,
+            initial_epoch: int = 0):
         self.network.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_data=validation_data,
                          validation_steps=validation_steps, epochs=epochs, callbacks=callbacks,
                          initial_epoch=initial_epoch, shuffle=False)
 
-    def load_weights(self, path, expect_partial=False):
+    def load_weights(self, path: str, expect_partial: bool = False):
         if expect_partial:
             self.network.load_weights(path).expect_partial()
-
         else:
             self.network.load_weights(path)
 

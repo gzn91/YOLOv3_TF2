@@ -21,7 +21,7 @@ saved_model/
 *.hdf5
 logs/
 data/
-training_checkpoints/
+records/
 
 # Distribution / packaging
 .Python

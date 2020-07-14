@@ -28,14 +28,14 @@ class Kmeans(object):
 
 class KMeans():
 
-    def __init__(self, n_clusters, img_size=416, record_path=None):
+    def __init__(self, n_clusters: int, img_size: int = 416, record_path: str = None):
         self.path = record_path
         self._n_clusters = n_clusters
         self.centers = np.random.rand(self._n_clusters,2)
         self.img_size = img_size
 
-    def create_bboxes(self):
-        def _parse_fn(tf_record):
+    def create_bboxes(self) -> np.ndarray:
+        def _parse_fn(tf_record: tf.Tensor) -> tf.Tensor:
             features = {
                 'height': tf.io.FixedLenFeature([], tf.int64),
                 'width': tf.io.FixedLenFeature([], tf.int64),
@@ -70,7 +70,7 @@ class KMeans():
 
         return np.concatenate(bboxes, 0)
 
-    def fit(self, boxes):
+    def fit(self, boxes: np.ndarray) -> np.ndarray:
 
         center_idx = np.random.choice(np.arange(boxes.shape[0], dtype='int32'), self._n_clusters, replace=False)
         centers = boxes[center_idx]
@@ -100,4 +100,4 @@ if __name__=='__main__':
     print(bboxes.shape)
     centers = km.fit(bboxes[:,2:])
     print(centers)
-    np.savetxt('anchors2.csv', np.int32(centers), fmt='%i', delimiter=',')
+    np.savetxt('anchors.csv', np.int32(centers), fmt='%i', delimiter=',')
